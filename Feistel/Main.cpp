@@ -1,117 +1,115 @@
 #include <iostream>
-#include <bitset>
 #include <limits>
 #include <vector>
 #include <random>
 #include <functional>
-#include <cassert>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 std::random_device rd{};
 std::default_random_engine eng{ rd() };
 std::uniform_int_distribution<int> dist{ 0, std::numeric_limits<int>::max() };
 
-auto next = std::bind(dist, eng);
+auto nextInt = std::bind(dist, eng);
 
-void print(const std::string& msg) {
-	assert(msg.size() % 2 == 0 && "Message must be divisible by 2");
+class CImage final {
+public:
+	CImage(const std::string& file) {
+		int w, h, c;
 
-	const std::size_t half = msg.size() / 2;
-	std::string buf(msg.size(), '\0');
+		dataBuffer = stbi_load(file.c_str(), &w, &h, &c, STBI_rgb);
 
-	for (std::size_t i = 0; i < msg.size(); i++) {
-		if (msg[i] >= 32) buf[i] = msg[i];
-		else buf[i] = '.';
+		assert(width % 2 == 0 && "Image width be divisible by 2");
+		assert(height % 2 == 0 && "Image height be divisible by 2");
+
+		width = static_cast<unsigned int>(w);
+		height = static_cast<unsigned int>(h);
+		channels = static_cast<unsigned int>(c);
+
+		size = width * height * channels;
+		half = size / 2;
+
+		swapBuffer = new unsigned char[size];
+	}
+	~CImage() {
+		delete[] swapBuffer;
+
+		stbi_image_free(dataBuffer);
 	}
 
-	std::cout << buf << " | ";
+public:
+	void Transform(const unsigned int rounds, const std::vector<unsigned int>& keys) {
+		for (unsigned int i = 0; i < rounds; i++) {
+			for (unsigned int j = 0; j < size; j++) {
+				if (j < half) swapBuffer[j + half] = dataBuffer[j];
+				else swapBuffer[j - half] = dataBuffer[j - half] ^ dataBuffer[j] ^ keys[i];
+			}
 
-	for (std::size_t i = 0; i < half; i++)
-		std::cout << std::bitset<8>(buf[i]) << ' ';
+			SwapBuffers();
+		}
+	}
 
-	std::cout << "| ";
-
-	for (std::size_t i = 0; i < half; i++)
-		std::cout << std::bitset<8>(buf[half + i]) << ' ';
-
-	std::cout << '\n';
-}
-
-void encrypt(std::size_t rounds, std::string& msg, std::vector<char>& keys) {
-	assert(msg.size() % 2 == 0 && "Message must be divisible by 2");
-
-	const std::size_t half = msg.size() / 2;
-
-	for (std::size_t i = 0; i < rounds; i++) {
-		std::string buf(msg.size(), '\0');
-
-		keys[i] = next();
-
-		for (std::size_t j = 0; j < msg.size(); j++) {
-			if (j < half) buf[j + half] = msg[j];
-			else buf[j - half] = msg[j - half] ^ msg[j] ^ keys[i];
+	void Flip() {
+		for (unsigned int i = 0; i < size; i++) {
+			if (i < half) swapBuffer[i + half] = dataBuffer[i];
+			else swapBuffer[i - half] = dataBuffer[i];
 		}
 
-		msg = buf;
-
-		print(msg);
-	}
-}
-
-void decrypt(std::size_t rounds, std::string& msg, std::vector<char>& keys) {
-	assert(msg.size() % 2 == 0 && "Message must be divisible by 2");
-
-	const std::size_t half = msg.size() / 2;
-
-	for (std::size_t i = 0; i < rounds; i++) {
-		std::string buf(msg.size(), '\0');
-
-		for (std::size_t j = 0; j < msg.size(); j++) {
-			if (j < half) buf[j + half] = msg[j];
-			else buf[j - half] = msg[j - half] ^ msg[j] ^ keys[i];
-		}
-
-		msg = buf;
-
-		print(msg);
-	}
-}
-
-void swap(std::string& msg) {
-	assert(msg.size() % 2 == 0 && "Message must be divisible by 2");
-
-	const std::size_t half = msg.size() / 2;
-
-	std::string buf(msg.size(), '\0');
-
-	for (std::size_t j = 0; j < msg.size(); j++) {
-		if (j < half) buf[j + half] = msg[j];
-		else buf[j - half] = msg[j];
+		SwapBuffers();
 	}
 
-	msg = buf;
+	void Write(const std::string& file) {
+		stbi_write_jpg(file.c_str(), width, height, channels, dataBuffer, 100);
+	}
+
+private:
+	void SwapBuffers() {
+		for (unsigned int i = 0; i < size; i++)
+			dataBuffer[i] = swapBuffer[i];
+	}
+
+private:
+	unsigned char* dataBuffer = nullptr;
+	unsigned char* swapBuffer = nullptr;
+
+	unsigned int width = 0;
+	unsigned int height = 0;
+	unsigned int channels = 0;
+
+	unsigned int size = 0;
+	unsigned int half = 0;
+};
+
+auto GenRandomKeys(const unsigned int rounds) {
+	std::vector<unsigned int> keys(rounds);
+
+	for (unsigned int i = 0; i < keys.size(); i++) keys[i] = nextInt();
+
+	return keys;
 }
 
 int main() {
-	const std::size_t n = 16;
+	const unsigned int rounds = 512;
 
-	std::string msg{ "this is some foo" };
-	std::vector<char> keys(n);
+	CImage image{ "kalti.jpg" };
 
-	print(msg);
+	auto keys = GenRandomKeys(rounds);
 
-	encrypt(n, msg, keys);
+	image.Transform(rounds, keys);
 
-	std::cout << '\n';
+	image.Write("kalti_encoded.jpg");
 
 	std::reverse(keys.begin(), keys.end());
 
-	swap(msg);
+	image.Flip();
+	image.Transform(rounds, keys);
+	image.Flip();
 
-	decrypt(n, msg, keys);
-
-	swap(msg);
-
-	print(msg);
+	image.Write("kalti_decoded.jpg");
 
 	return 0;
 }
