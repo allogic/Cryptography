@@ -23,8 +23,8 @@ public:
 
 		dataBuffer = stbi_load(file.c_str(), &w, &h, &c, STBI_rgb);
 
-		assert(width % 2 == 0 && "Image width be divisible by 2");
-		assert(height % 2 == 0 && "Image height be divisible by 2");
+		assert(width % 2 == 0 && "Image width must be divisible by 2");
+		assert(height % 2 == 0 && "Image height must be divisible by 2");
 
 		width = static_cast<unsigned int>(w);
 		height = static_cast<unsigned int>(h);
